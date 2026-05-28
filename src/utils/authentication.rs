@@ -7,10 +7,29 @@ use base64::{Engine, prelude::BASE64_STANDARD};
 use std::sync::Arc;
 use bytes::Bytes;
 
+#[derive(Debug, Default, Clone)]
+pub struct Authentication {
+    credentials: Authorization,
+    user_details: Option<UserDetails>,
+    is_authenticated: bool
+}
+
+impl Authentication {
+    pub fn new(credentials: Authorization, user_details: Option<UserDetails>, is_authenticated: bool) -> Self {
+        Self {
+            credentials,
+            user_details,
+            is_authenticated,
+        }
+    }
+    
+    pub fn credentials(&self) -> &Authorization { &self.credentials }
+}
+
 #[derive(Debug, Clone, Default)]
 pub enum Authorization {
     Bearer(String),
-    Basic(String, String), // Можно расширить до (String, String)
+    Basic(String, String),
     #[default]
     None,    // Если заголовок не передан
     Invalid,               // Если заголовок есть, но формат сломан
@@ -48,9 +67,7 @@ impl Authorization {
     }
 }
 
-pub struct Authentication {}
-
-#[derive(Clone, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct UserDetails {
     username: String,
     password: String,

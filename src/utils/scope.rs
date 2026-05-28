@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use crate::{Request, Route};
+use crate::{Route};
 use crate::utils::authentication::Filter;
 use crate::utils::socket::Socket;
 

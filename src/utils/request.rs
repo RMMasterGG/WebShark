@@ -3,9 +3,9 @@
 //! Позволяет удобно их распарсить и преобразовать в необходимые типы.
 //! Модуль содержит в себе перечисление типов методов отправки.
 
-use crate::utils::authentication::Authorization;
+use crate::utils::authentication::{Authentication, Authorization};
 use bytes::Bytes;
-use http::{HeaderMap, HeaderName, HeaderValue, Method, Uri};
+use http::{HeaderMap, HeaderName, HeaderValue, Method, Uri, Request as HttpRequest};
 use std::io::Read;
 use std::str::FromStr;
 
@@ -14,11 +14,8 @@ use std::str::FromStr;
 /// Имеет поля: метод [`Method`], часть пути, список всех заголовков и тело запроса.
 #[derive(Debug, Clone, Default)]
 pub struct Request<B> {
-    method: Method,
-    uri: Uri,
-    authorization: Authorization,
-    headers: HeaderMap,
-    body: B,
+    inner: HttpRequest<B>,
+    authentication: Authentication,
 }
 
 /// Реализация, позволяющая преобразовать данные из потока в структуру запроса.
@@ -49,97 +46,99 @@ impl Request<Bytes> {
         }
 
         let raw_data = String::from_utf8_lossy(&buffer[..read_size]);
-        let mut parts = raw_data.split("\r\n\r\n");
-
-        let mut headers = HeaderMap::new();
-        let headers_part = parts.next().unwrap_or("");
-        let mut body_part: String = parts.next().unwrap_or("").into();
+        let (headers_part, body_part) = raw_data.split_once("\r\n\r\n").unwrap_or((&raw_data, ""));
+        let mut body_string = body_part.to_string();
 
         let mut header_lines = headers_part.lines();
         let first_line = header_lines.next().unwrap_or("");
         let mut first_line_words = first_line.split_whitespace();
 
+        let mut headers = HeaderMap::new();
         for line in header_lines {
-            let (key, value) = line.split_once(":").unwrap();
-            if let (Ok(key), Ok(value)) = (HeaderName::from_str(key), HeaderValue::from_str(value.trim()))
-            {
-                headers.insert(key, value);
+            if let Some((key, value)) = line.split_once(":") {
+                if let (Ok(name), Ok(val)) = (HeaderName::from_str(key.trim()), HeaderValue::from_str(value.trim())) {
+                    headers.insert(name, val);
+                }
             }
         }
 
         let authorization = if let Some(auth_value) = headers.remove(http::header::AUTHORIZATION) {
-            let auth_str = auth_value.to_str().unwrap_or("");
-            Authorization::parse(auth_str)
+            Authorization::parse(auth_value.to_str().unwrap_or(""))
         } else {
             Authorization::parse("")
         };
 
-        if let Some(content_length_val) = headers.get(http::header::CONTENT_LENGTH)
-            && let Ok(content_length_str) = content_length_val.to_str()
-            && let Ok(content_length) = content_length_str.parse::<usize>()
-            && body_part.len() < content_length
+        if let Some(cl_val) = headers.get(http::header::CONTENT_LENGTH)
+            && let Ok(cl_str) = cl_val.to_str()
+            && let Ok(content_length) = cl_str.parse::<usize>()
+            && body_string.len() < content_length
         {
-            let missing_length = content_length - body_part.len();
-            let mut body_buffer = vec![0; missing_length];
-
-            if let Err(_err) = stream.read_exact(&mut body_buffer) {
-                return Err(Box::from(std::io::Error::new(
-                    std::io::ErrorKind::UnexpectedEof,
-                    "Failed to read full HTTP body fields from stream",
-                )));
-            }
-            body_part.push_str(&String::from_utf8_lossy(&body_buffer));
+            let mut body_buffer = vec![0; content_length - body_string.len()];
+            stream.read_exact(&mut body_buffer)?;
+            body_string.push_str(&String::from_utf8_lossy(&body_buffer));
         }
 
-        let method_str = first_line_words
-            .next()
-            .ok_or("Bad Request: Missing HTTP method")?;
-
-        let method = Method::from_bytes(method_str.as_bytes())
-            .map_err(|_| "Bad Request: Invalid HTTP method")?;
-
+        let method_str = first_line_words.next().ok_or("Missing method")?;
         let uri_str = first_line_words.next().unwrap_or("/");
-        let uri = Uri::from_str(uri_str)?;
 
-        let body = Bytes::from(body_part);
+        let mut http_req_builder = HttpRequest::builder()
+            .method(Method::from_str(method_str)?)
+            .uri(uri_str);
+
+        if let Some(h) = http_req_builder.headers_mut() {
+            *h = headers;
+        }
+
+        let inner = http_req_builder.body(Bytes::from(body_string))?;
+
+        let authentication = Authentication::new(
+            authorization,
+            None,
+            false
+        );
 
         Ok(Self {
-            method,
-            uri,
-            authorization,
-            headers,
-            body,
+            inner,
+            authentication,
         })
     }
 
-    pub fn method(&self) -> Method {
-        self.method.clone()
+    pub fn method(&self) -> &Method {
+        self.inner.method()
+    }
+
+    pub fn method_copy(&self) -> Method {
+        self.inner.method().clone()
     }
 
     pub fn uri(&self) -> &Uri {
-        &self.uri
+        &self.inner.uri()
     }
 
     pub fn headers(&self) -> &HeaderMap {
-        &self.headers
+        &self.inner.headers()
     }
 
     pub fn body(&self) -> &Bytes {
-        &self.body
+        &self.inner.body()
     }
 
     pub fn body_bytes(&self) -> Bytes {
-        self.body.clone()
+        self.inner.body().clone()
+    }
+
+    pub fn authentication(&self) -> &Authentication {
+        &self.authentication
     }
 
     pub fn authorization(&self) -> &Authorization {
-        &self.authorization
+        &self.authentication.credentials()
     }
 
     /// Метод позволяет выбрать определённые данные из заголовка.
     pub fn get_header(&self, key: &'static str) -> Option<&str> {
         if let Ok(header_name) = HeaderName::from_bytes(key.as_bytes()) {
-            self.headers
+            self.inner.headers()
                 .get(header_name)
                 .and_then(|value| value.to_str().ok())
         } else {
