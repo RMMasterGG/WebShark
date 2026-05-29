@@ -6,9 +6,8 @@
 use std::sync::Arc;
 use http::Method;
 use bytes::Bytes;
-use crate::utils::route_handler::RouteHandler;
-use crate::utils::request::{Request};
-use crate::utils::response::Response;
+use crate::{Request, Response};
+use crate::routing::route_handler::RouteHandler;
 
 /// Структура, представляющая зарегистрированный эндпоинт.
 pub struct Route {
@@ -33,9 +32,9 @@ impl Route {
     /// # Examples
     ///
     /// ```no_run
-    /// use webshark::utils::request::{Method, Request};
-    /// use webshark::utils::response::Response;
-    /// use webshark::utils::route::Route;
+    /// use webshark::routing::request::{Method, Request};
+    /// use webshark::routing::response::Response;
+    /// use webshark::routing::route::Route;
     ///
     /// // Функция без аргументов
     /// fn index() -> Response { Response::ok() }

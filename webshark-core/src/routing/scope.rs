@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use crate::{Route};
-use crate::utils::authentication::Filter;
-use crate::utils::socket::Socket;
+use crate::auth::authentication::Filter;
+use crate::routing::socket::Socket;
 
 #[derive(Default)]
 pub struct Scope {

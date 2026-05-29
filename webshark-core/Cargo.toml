@@ -32,3 +32,7 @@ http = { version = "1.4.0" }
 default = []
 
 domain = []
+
+[[example]]
+name = "main"
+path = "examples/main.rs"

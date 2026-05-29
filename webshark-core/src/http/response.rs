@@ -179,7 +179,7 @@ impl Response<Bytes> {
 /// # Examples
 ///
 /// ```no_run
-/// use webshark::utils::response::Response;
+/// use webshark::routing::response::Response;
 ///
 /// // Быстрый пустой успешный ответ
 /// let res_ok = Response::ok();
@@ -204,7 +204,7 @@ impl Response<Bytes> {
     /// # Examples
     ///
     /// ```no_run
-    /// use webshark::utils::response::Response;
+    /// use webshark::routing::response::Response;
     ///
     /// let res_str = Response::ok_body("Привет, мир!");
     /// let res_bytes = Response::ok_body(b"Hello".to_vec());
@@ -225,7 +225,7 @@ impl Response<Bytes> {
     /// # Examples
     ///
     /// ```no_run
-    /// use webshark::utils::response::Response;
+    /// use webshark::routing::response::Response;
     ///
     /// let res = Response::created_body("User registered successfully");
     /// ```
@@ -267,7 +267,7 @@ impl Response<Bytes> {
     /// # Examples
     ///
     /// ```no_run
-    /// use webshark::utils::response::Response;
+    /// use webshark::routing::response::Response;
     ///
     /// let res = Response::not_found_body("Файл index.html не найден на диске");
     /// ```

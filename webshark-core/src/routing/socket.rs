@@ -2,7 +2,7 @@ use std::sync::Arc;
 use bytes::Bytes;
 use tokio::io::DuplexStream;
 use crate::{Request};
-use crate::utils::socket_handler::SocketHandler;
+use crate::routing::socket_handler::SocketHandler;
 
 
 pub struct Socket {

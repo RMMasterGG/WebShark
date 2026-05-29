@@ -5,7 +5,7 @@
 
 use bytes::Bytes;
 use tokio::io::DuplexStream;
-use crate::utils::request::Request;
+use crate::Request;
 
 /// Трейт, инкапсулирующий вызов эндпоинта.
 ///

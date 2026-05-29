@@ -3,7 +3,7 @@
 //! Позволяет удобно их распарсить и преобразовать в необходимые типы.
 //! Модуль содержит в себе перечисление типов методов отправки.
 
-use crate::utils::authentication::{Authentication, Authorization};
+use crate::auth::authentication::{Authentication, Authorization};
 use bytes::Bytes;
 use http::{HeaderMap, HeaderName, HeaderValue, Method, Uri, Request as HttpRequest};
 use std::io::Read;
@@ -23,7 +23,7 @@ pub struct Request<B> {
 /// # Examples
 ///
 /// ```no_run
-/// use webshark::utils::request::Request;
+/// use webshark::routing::request::Request;
 /// use std::net::TcpStream;
 ///
 /// # fn main() -> Result<(), std::io::Error> {

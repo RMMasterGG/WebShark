@@ -3,15 +3,15 @@
 //! Хранит в себе карту соответствий строковых ключей (Метод + Путь)
 //! и стёртых по типу функций-обработчиков (Handler).
 
-use crate::utils::authentication::{Filter, FilterChain};
-use crate::utils::route_handler::RouteHandler;
-use crate::utils::request::{Request};
-use crate::utils::route::Route;
-use crate::utils::scope::Scope;
+use crate::auth::authentication::{Filter, FilterChain};
+use crate::routing::route_handler::RouteHandler;
+use crate::routing::route::Route;
+use crate::routing::scope::Scope;
 use std::collections::HashMap;
 use std::sync::Arc;
 use bytes::Bytes;
 use http::Method;
+use crate::Request;
 
 #[derive(Clone)]
 pub struct CompiledRoute {
@@ -52,10 +52,10 @@ impl Router {
     /// # Examples
     ///
     /// ```no_run
-    /// use webshark::utils::router::Router;
-    /// use webshark::utils::route::Route;
-    /// use webshark::utils::request::Method;
-    /// use webshark::utils::response::Response;
+    /// use webshark::routing::router::Router;
+    /// use webshark::routing::route::Route;
+    /// use webshark::routing::request::Method;
+    /// use webshark::routing::response::Response;
     ///
     /// let mut router = Router::new();
     /// router.add_route(Route::new(Method::GET, "/", || Response::ok()));

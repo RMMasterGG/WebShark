@@ -38,11 +38,15 @@
 //!
 //! ## Проект планирует переезд на Hyper.
 
-pub mod domain;
+pub mod dto;
+pub mod http;
 pub mod utils;
+pub mod routing;
+pub mod auth;
+pub mod server;
 
-pub use utils::request::{Request};
-pub use utils::response::Response;
-pub use utils::route::Route;
-pub use utils::router::Router;
-pub use utils::server::Server;
+pub use http::request::Request;
+pub use http::response::Response;
+pub use routing::route::Route;
+pub use routing::router::Router;
+pub use server::Server;

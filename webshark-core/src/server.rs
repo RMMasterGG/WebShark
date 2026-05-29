@@ -5,15 +5,14 @@
 
 use crate::utils::config_system::{APP_CONFIG, Config};
 use crate::utils::console_util::SHARK_BANNER;
-use crate::utils::request::Request;
-use crate::utils::response::Response;
-use crate::utils::router::Router;
+use crate::routing::router::Router;
 use bytes::Bytes;
 use http::Method;
 use std::io::{Read, Write};
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tracing_subscriber::fmt;
+use crate::{Request, Response};
 
 pub struct Server {
     router: Router,
@@ -38,10 +37,10 @@ impl Server {
     ///
     /// ```no_run
     /// use webshark::start_server;
-    /// use webshark::utils::request::{Method, Request};
-    /// use webshark::utils::response::Response;
-    /// use webshark::utils::route::Route;
-    /// use webshark::utils::router::Router;
+    /// use webshark::routing::request::{Method, Request};
+    /// use webshark::routing::response::Response;
+    /// use webshark::routing::route::Route;
+    /// use webshark::routing::router::Router;
     ///
     ///#[tokio::main]
     /// async fn main() {
@@ -284,7 +283,7 @@ fn handle_client(mut stream: impl Read + Write, routers: Arc<Router>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::utils::route::Route;
+    use crate::routing::route::Route;
     use std::io::Cursor;
 
     fn init_test_config() {

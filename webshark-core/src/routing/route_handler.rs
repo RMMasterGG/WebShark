@@ -4,8 +4,7 @@
 //! так и функции, принимающие объект [`Request`].
 
 use bytes::Bytes;
-use crate::utils::request::Request;
-use crate::utils::response::Response;
+use crate::{Request, Response};
 
 /// Трейт, инкапсулирующий вызов эндпоинта.
 ///
