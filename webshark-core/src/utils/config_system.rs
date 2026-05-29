@@ -248,7 +248,7 @@ impl Config {
             Err(_) => {
                 let default_cfg = Config::default();
 
-                if let Err(e) = fs::create_dir_all("./src/resources") {
+                if let Err(e) = fs::create_dir_all("../resources") {
                     error!("Не удалось создать директорию для конфигурации: {}", e);
                 }
 

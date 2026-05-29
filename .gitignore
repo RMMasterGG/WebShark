@@ -1,3 +1,9 @@
 /target
-/examples/
-/src/.cargo/
+.cargo/
+.env
+*.env
+.idea/
+*.iml
+.DS_Store
+/webshark-core/examples/
+/webshark-core/src/.cargo/

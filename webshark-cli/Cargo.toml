@@ -1,0 +1,8 @@
+[package]
+name = "webshark-cli"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+webshark = { path = "../webshark-core" }
+tokio = { version = "1.0", features = ["macros", "rt"] }
