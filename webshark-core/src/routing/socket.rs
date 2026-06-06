@@ -33,7 +33,7 @@ impl Socket {
     }
 
     pub fn path(&self) -> &'static str { self.path }
-    pub fn handler(&self) -> Arc<dyn SocketHandler<(Request<Bytes>, DuplexStream)>> {
+    pub fn handler(&self) ->Arc<dyn SocketHandler<(Request<Bytes>, DuplexStream)> + Sync + Send + 'static> {
         self.handler.clone()
     }
 }

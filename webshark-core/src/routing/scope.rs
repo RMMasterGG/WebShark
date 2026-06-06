@@ -9,6 +9,7 @@ pub struct Scope {
     filters: Vec<Arc<dyn Filter>>,
     routes: Vec<Route>,
     sockets: Vec<Socket>,
+    transports: Vec<Socket>,
     nested_scopes: Vec<Scope>,
 }
 
@@ -33,7 +34,7 @@ impl Scope {
     }
 
     pub fn add_webtransport(mut self, socket: Socket) -> Self {
-        self.sockets.push(socket);
+        self.transports.push(socket);
         self
     }
 
@@ -57,6 +58,8 @@ impl Scope {
     pub fn scopes(&mut self) -> Vec<Scope> {
         std::mem::take(&mut self.nested_scopes)
     }
+
+    pub fn transports(&mut self) -> Vec<Socket> { std::mem::take(&mut self.transports) }
 
     pub fn filters(&mut self) -> Vec<Arc<dyn Filter>> {
         std::mem::take(&mut self.filters)

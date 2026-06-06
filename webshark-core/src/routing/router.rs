@@ -11,12 +11,43 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use bytes::Bytes;
 use http::Method;
-use crate::Request;
+use tokio::io::DuplexStream;
+use crate::{Request, Response};
+use crate::routing::socket_handler::SocketHandler;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RouteType {
+    Http,
+    WebSocket,
+    WebTransport,
+}
+
+pub type HttpHandler = Arc<dyn RouteHandler<Request<Bytes>> + Send + Sync + 'static>;
+pub type WSHandler = Arc<dyn SocketHandler<(Request<Bytes>, DuplexStream)> + Send + Sync + 'static>;
+pub type WTHandler = Arc<dyn SocketHandler<(Request<Bytes>, DuplexStream)> + Send + Sync + 'static>;
+
+#[derive(Clone)]
+pub enum Handler {
+    Http(HttpHandler),
+    WebSocket(WSHandler),
+    WebTransport(WTHandler),
+}
+
+impl Handler {
+    pub fn invoke_http(&self, req: Request<Bytes>) -> Response<Bytes> {
+        match self {
+            Handler::Http(handler) => handler.invoke(req),
+            _ => panic!("Вызов invoke_http для сокет-соединения недопустим!"),
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct CompiledRoute {
-    handler: Arc<dyn RouteHandler<Request<Bytes>> + Send + Sync>,
+    handler: Handler,
     filter_chain: FilterChain,
+    route_type: RouteType,
+    method: Option<Method>,
 }
 
 impl CompiledRoute {
@@ -24,8 +55,20 @@ impl CompiledRoute {
         &self.filter_chain
     }
 
-    pub fn handler(&self) -> &Arc<dyn RouteHandler<Request<Bytes>> + Send + Sync> {
+    pub fn handler(&self) -> &Handler {
         &self.handler
+    }
+
+    pub fn is_websocket(&self) -> bool {
+        true
+    }
+
+    pub fn route_type(&self) -> RouteType {
+        self.route_type
+    }
+
+    pub fn method(&self) -> Option<Method> {
+        self.method.clone()
     }
 }
 
@@ -35,7 +78,7 @@ impl CompiledRoute {
 /// при входящих запросах.
 #[derive(Default, Clone)]
 pub struct Router {
-    routes: HashMap<Method, HashMap<String, CompiledRoute>>,
+    routes: HashMap<String, Vec<CompiledRoute>>,
 }
 
 impl Router {
@@ -63,17 +106,20 @@ impl Router {
     #[deprecated]
     pub fn add_route(&mut self, route: Route) {
         let compiled = CompiledRoute {
-            handler: route.handler(),
+            handler: Handler::Http(route.handler()),
             filter_chain: FilterChain::default(),
+            route_type: RouteType::Http,
+            method: Some(route.method()),
         };
-        self.insert_route(route.method().clone(), route.path().to_string(), compiled);
+        self.insert_route(route.path().to_string(), compiled);
     }
 
-    fn insert_route(&mut self, method: Method, path: String, route: CompiledRoute) {
+    fn insert_route(&mut self, path: String, route: CompiledRoute) {
+
         self.routes
-            .entry(method)
+            .entry(path)
             .or_default()
-            .insert(path, route);
+            .push(route);
     }
 
     pub fn add_scope(&mut self, scope: Scope) {
@@ -94,27 +140,57 @@ impl Router {
 
         filter_stack.extend(scope.filters());
 
-        for route in scope.routes() {
-            let mut full_path = String::with_capacity(current_prefix.len() + route.path().len());
-            full_path.push_str(current_prefix.as_str());
-            full_path.push_str(route.path());
-            let chain = FilterChain::new(filter_stack.clone());
+        self.push_endpoints(
+            &current_prefix,
+            filter_stack,
+            RouteType::Http,
+            scope.routes().into_iter().map(|r| (r.path(), Some(r.method()), Handler::Http(r.handler())))
+        );
 
-            self.insert_route(
-                route.method().clone(),
-                full_path,
-                CompiledRoute {
-                    handler: route.handler(),
-                    filter_chain: chain,
-                }
-            );
-        }
+        self.push_endpoints(
+            &current_prefix,
+            filter_stack,
+            RouteType::WebSocket,
+            scope.sockets().into_iter().map(|s| (s.path(), None, Handler::WebSocket(s.handler())))
+        );
+
+        self.push_endpoints(
+            &current_prefix,
+            filter_stack,
+            RouteType::WebTransport,
+            scope.transports().into_iter().map(|t| (t.path(), None, Handler::WebTransport(t.handler())))
+        );
 
         for nested in scope.scopes() {
             self.compile_scope(&current_prefix, filter_stack, nested);
         }
 
         filter_stack.truncate(previous_filters_count);
+    }
+
+    fn push_endpoints<I>(&mut self, prefix: &str, filter_stack: &mut Vec<Arc<dyn Filter>>, route_type: RouteType, endpoints: I)
+    where
+        I: IntoIterator<Item = (&'static str, Option<Method>, Handler)>,
+    {
+
+        for (r_path, method, handler) in endpoints {
+            let mut full_path = String::with_capacity(prefix.len() + r_path.len());
+            full_path.push_str(prefix);
+            full_path.push_str(r_path);
+
+            let filter_chain = FilterChain::new(filter_stack.clone());
+
+            self.insert_route(
+                full_path,
+                CompiledRoute {
+                    handler,
+                    filter_chain,
+                    route_type,
+                    method,
+                }
+            );
+        }
+
     }
 
     /// Ищет зарегистрированный обработчик по HTTP-методу и текстовому пути.
@@ -124,18 +200,35 @@ impl Router {
     pub fn get_handler(
         &self,
         method: &Method,
+        route_type: RouteType,
         path: &str,
-    ) -> Option<&(dyn RouteHandler<Request<Bytes>> + Send + Sync + 'static)> {
+    ) -> Option<Handler> {
 
-        let method_map = self.routes.get(method)?;
+        let compiled_route = self.get_route(method, route_type, path)?;
 
-        let compiled_route = method_map.get(path)?;
-
-        Some(compiled_route.handler.as_ref())
+        Some(compiled_route.handler.clone())
     }
 
-    pub fn get_route(&self, method: &Method, path: &str) -> Option<&CompiledRoute> {
-        self.routes.get(method)?.get(path)
+    pub fn get_route(&self, method: &Method, route_type: RouteType, path: &str) -> Option<&CompiledRoute> {
+
+        let routes_list = self.routes.get(path)?;
+
+        for compiled in routes_list {
+            match route_type {
+                RouteType::Http => {
+                    if compiled.route_type == RouteType::Http && compiled.method == Some(method.clone()) {
+                        return Some(compiled)
+                    }
+                }
+                _ => {
+                    if compiled.route_type == route_type {
+                        return Some(compiled)
+                    }
+                }
+            }
+        }
+
+        None
     }
 }
 
@@ -159,7 +252,7 @@ mod tests {
         fn test_new_router_is_empty() {
             let router = Router::new();
 
-            assert!(router.get_handler(&Method::GET, "/").is_none());
+            assert!(router.get_handler(&Method::GET, RouteType::Http, "/").is_none());
         }
 
         #[test]
@@ -168,11 +261,11 @@ mod tests {
 
             router.add_route(Route::new(Method::GET, "/tests", mock_home_handler));
 
-            let handler_opt = router.get_handler(&Method::GET, "/tests");
+            let handler_opt = router.get_handler(&Method::GET, RouteType::Http, "/tests");
             assert!(handler_opt.is_some());
 
             let handler = handler_opt.unwrap();
-            let response = handler.invoke(Request::default());
+            let response = handler.invoke_http(Request::default());
             assert_eq!("home", response.body_as_str());
         }
 
@@ -181,9 +274,9 @@ mod tests {
             let mut router = Router::new();
             router.add_route(Route::new(Method::GET, "/", mock_home_handler));
 
-            assert!(router.get_handler(&Method::GET, "/profile").is_none());
+            assert!(router.get_handler(&Method::GET, RouteType::Http, "/profile").is_none());
 
-            assert!(router.get_handler(&Method::POST, "/").is_none());
+            assert!(router.get_handler(&Method::POST, RouteType::Http, "/").is_none());
         }
 
         #[test]
@@ -194,9 +287,9 @@ mod tests {
             router.add_route(Route::new(Method::POST, "/submit", mock_post_handler));
 
             let handler = router
-                .get_handler(&Method::POST, "/submit")
+                .get_handler(&Method::POST, RouteType::Http, "/submit")
                 .ok_or("Маршрут не найден")?;
-            let response = handler.invoke(Request::default());
+            let response = handler.invoke_http(Request::default());
 
             assert_eq!("created", response.body_as_str());
             Ok(())

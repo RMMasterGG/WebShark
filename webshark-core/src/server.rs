@@ -3,16 +3,22 @@
 //! Отвечает за инициализацию TCP-слушателя, прием входящих соединений
 //! в бесконечном цикле и их маршрутизацию через [`Router`].
 
+use crate::routing::route_handler::RouteHandler;
+use crate::routing::router::{Handler, RouteType, Router, WSHandler};
 use crate::utils::config_system::{APP_CONFIG, Config};
 use crate::utils::console_util::SHARK_BANNER;
-use crate::routing::router::Router;
+use crate::utils::websocket::generate_accept_key;
+use crate::{Request, Response};
 use bytes::Bytes;
 use http::Method;
+use http::header::{ACCESS_CONTROL_ALLOW_HEADERS, ACCESS_CONTROL_ALLOW_METHODS, ACCESS_CONTROL_ALLOW_ORIGIN, ACCESS_CONTROL_REQUEST_HEADERS, ACCESS_CONTROL_REQUEST_METHOD, CONNECTION, ORIGIN, REFERER, UPGRADE};
 use std::io::{Read, Write};
+use std::net::TcpStream;
 use std::sync::Arc;
+use tokio::io::DuplexStream;
 use tokio::net::TcpListener;
+use tracing::{error, warn};
 use tracing_subscriber::fmt;
-use crate::{Request, Response};
 
 pub struct Server {
     router: Router,
@@ -20,8 +26,8 @@ pub struct Server {
 
 impl Server {
     /// Создает новый экземпляр сервера с привязанным маршрутизатором.
-    pub fn new(router: Router) -> Server {
-        Server { router }
+    pub fn new(router: Router) -> Self {
+        Self { router }
     }
 
     /// Запускает HTTP-сервер на указанном сетевом адресе.
@@ -69,6 +75,7 @@ impl Server {
             .with_thread_names(true)
             .compact();
 
+        // Logging subscribe
         tracing_subscriber::fmt().event_format(format).init();
 
         let tcp_listener = TcpListener::bind(config.server().server_and_port()).await?;
@@ -118,8 +125,8 @@ fn validate_cors_and_origin(request: &Request<Bytes>) -> bool {
         None => return true,
     };
 
-    let origin = request.get_header("origin").unwrap_or("");
-    let referer = request.get_header("referer").unwrap_or("");
+    let origin = request.get_header(ORIGIN).unwrap_or("");
+    let referer = request.get_header(REFERER).unwrap_or("");
 
     // TODO: [Безопасность / Host Injection] Добавить обязательную сверку заголовка `Host` из запроса
     // с реальным `config.server().server_and_port()`. Если они не совпадают — блокировать запрос,
@@ -164,7 +171,7 @@ fn validate_cors_and_origin(request: &Request<Bytes>) -> bool {
     // 4. Проверки для Preflight-запросов (OPTIONS)
     if request.method() == Method::OPTIONS {
         let request_method = request
-            .get_header("access-control-request-method")
+            .get_header(ACCESS_CONTROL_REQUEST_METHOD)
             .unwrap_or("");
 
         if !request_method.is_empty() {
@@ -177,7 +184,7 @@ fn validate_cors_and_origin(request: &Request<Bytes>) -> bool {
             }
         }
 
-        if let Some(req_headers_str) = request.get_header("access-control-request-headers")
+        if let Some(req_headers_str) = request.get_header(ACCESS_CONTROL_REQUEST_HEADERS)
             && !req_headers_str.is_empty()
         {
             let all_headers_allowed = req_headers_str
@@ -204,7 +211,7 @@ fn validate_cors_and_origin(request: &Request<Bytes>) -> bool {
 fn handle_client(mut stream: impl Read + Write, routers: Arc<Router>) {
     let request = match Request::parse(&mut stream) {
         Ok(req) => req,
-        Err(e) => return println!("Error parsing request: {}", e),
+        Err(e) => return error!("Error parsing request: {}", e),
     };
 
     if !validate_cors_and_origin(&request) {
@@ -214,7 +221,7 @@ fn handle_client(mut stream: impl Read + Write, routers: Arc<Router>) {
         return;
     }
 
-    let client_origin = request.get_header("origin").map(|s| s.to_string());
+    let client_origin = request.get_header(ORIGIN).map(|s| s.to_string());
 
     if request.method() == Method::OPTIONS {
         let config = APP_CONFIG.get().unwrap();
@@ -231,10 +238,10 @@ fn handle_client(mut stream: impl Read + Write, routers: Arc<Router>) {
 
         // Отправляем пустой ответ 204 с разрешениями
         let cors_response = Response::no_content()
-            .header("Access-Control-Allow-Origin", origin_str)
-            .header("Access-Control-Allow-Methods", allowed_methods_str)
+            .header(ACCESS_CONTROL_ALLOW_ORIGIN, origin_str)
+            .header(ACCESS_CONTROL_ALLOW_METHODS, allowed_methods_str)
             .header(
-                "Access-Control-Allow-Headers",
+                ACCESS_CONTROL_ALLOW_HEADERS,
                 config.cors().allowed_headers().join(", "),
             );
 
@@ -247,38 +254,84 @@ fn handle_client(mut stream: impl Read + Write, routers: Arc<Router>) {
     let req_method = request.method().clone();
     let req_path = request.uri().path().to_string();
 
-    if let Some(compiled_route) = routers.get_route(&req_method, &req_path) {
-        let client_origin = request.get_header("origin").map(|s| s.to_string());
+    let is_connection = request
+        .get_header(CONNECTION)
+        .map(|value| value.split(",").any(|v| v.trim().eq_ignore_ascii_case("upgrade")))
+        .unwrap_or(false);
+
+    let is_upgrade = request
+        .get_header(UPGRADE)
+        .map(|value| value.eq_ignore_ascii_case("websocket"))
+        .unwrap_or(false);
+
+    let is_websocket = is_connection && is_upgrade;
+
+    let router_type = if is_websocket {
+        RouteType::WebSocket
+    } else {
+        RouteType::Http
+    };
+
+    if let Some(compiled_route) = routers.get_route(&req_method, router_type, &req_path) {
+        let client_origin = request.get_header(ORIGIN).map(|s| s.to_string());
 
         let mut chain = compiled_route.filter_chain().clone();
 
         let handler_arc = compiled_route.handler().clone();
 
-        let response_result = chain.execute(request, move |req| Ok(handler_arc.invoke(req)));
+        let request_clone = request.clone();
+
+        let response_result = chain.execute(request, move |req| match &handler_arc {
+            Handler::Http(http_handler) => Ok(http_handler.invoke(req)),
+            Handler::WebSocket(_) => Ok(Response::websocket_upgraded()),
+            Handler::WebTransport(_) => Ok(Response::default()),
+        });
 
         let mut response = response_result.unwrap_or_else(|err_msg| {
             println!("[ERROR] Ошибка выполнения цепочки фильтров: {}", err_msg);
             Response::internal_error_body(err_msg)
         });
 
+        if response.is_websocket_upgraded() {
+            if let Handler::WebSocket(ws_handler) = &*compiled_route.handler() {
+                if let Some(accept_key) = generate_accept_key(&request_clone) {
+
+                    let handshake_response = Response::websocket_full_upgraded(accept_key);
+
+                    stream.write_all(handshake_response.to_bytes().as_slice()).unwrap();
+                    stream.flush().unwrap();
+
+                    websocket_handler(stream, ws_handler, request_clone);
+                    return;
+                } else {
+                    response = Response::bad_request();
+                }
+            }
+        }
+
         if let Some(origin_str) = client_origin
             && !origin_str.is_empty()
         {
-            response = response.header("Access-Control-Allow-Origin", origin_str);
+            response = response.header(ACCESS_CONTROL_ALLOW_ORIGIN, origin_str);
         }
 
         if let Err(e) = response.send(&mut stream) {
             println!("Error sending response: {}", e);
         }
     } else {
-        let client_origin = request.get_header("origin").unwrap_or("");
+        let client_origin = request.get_header(ORIGIN).unwrap_or("");
         let mut response = Response::not_found();
         if !client_origin.is_empty() {
-            response = response.header("Access-Control-Allow-Origin", client_origin);
+            response = response.header(ACCESS_CONTROL_ALLOW_ORIGIN, client_origin);
         }
         let _ = response.send(&mut stream);
     }
 }
+
+fn websocket_handler(mut stream: impl Read + Write, ws_handler: &WSHandler, request: Request<Bytes>) {
+    // TODO add job socket
+}
+
 
 #[cfg(test)]
 mod tests {

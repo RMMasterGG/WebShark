@@ -5,12 +5,17 @@
 
 use bytes::Bytes;
 use cookie::Cookie;
-use http::{HeaderName, HeaderValue, StatusCode, Response as HttpResponse};
-use http::header::{CONNECTION, CONTENT_TYPE};
-use std::fmt::Display;
+use http::header::{CONNECTION, CONTENT_TYPE, IntoHeaderName, InvalidHeaderValue, SET_COOKIE, UPGRADE, SEC_WEBSOCKET_ACCEPT};
+use http::{HeaderName, HeaderValue, Response as HttpResponse, StatusCode};
+use mime::{APPLICATION_JSON, Mime, TEXT_HTML_UTF_8};
+use std::fmt::{Debug, Display};
 use std::io::{Error, Write};
-use mime::{Mime, APPLICATION_JSON, TEXT_HTML_UTF_8};
 use tracing::warn;
+
+enum HeaderError {
+    InvalidName,
+    InvalidValue(InvalidHeaderValue),
+}
 
 /// Структура HTTP-ответа.
 ///
@@ -45,6 +50,40 @@ impl Display for Response<Bytes> {
 }
 
 impl Response<Bytes> {
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut buf = Vec::with_capacity(512);
+
+        let status = self.inner.status();
+
+        let reason = status.canonical_reason().unwrap_or("");
+        let status_u16 = status.as_u16().to_string();
+
+        let mut status_line = String::with_capacity(12 + status_u16.len() + reason.len());
+        status_line.push_str("HTTP/1.1 ");
+        status_line.push_str(&status_u16);
+        status_line.push_str(" ");
+        status_line.push_str(reason);
+        status_line.push_str("\r\n");
+
+        buf.extend_from_slice(status_line.as_bytes());
+
+        for (name, value) in self.inner.headers() {
+            buf.extend_from_slice(name.as_str().as_bytes());
+            buf.extend_from_slice(b": ");
+            buf.extend_from_slice(value.as_bytes());
+            buf.extend_from_slice(b"\r\n");
+        }
+        buf.extend_from_slice(b"\r\n");
+
+        if !self.inner.body().is_empty() {
+            buf.extend_from_slice(self.inner.body());
+        }
+
+        buf
+    }
+}
+
+impl Response<Bytes> {
     /// Создает базовый пустой ответ со статусом `200 OK` и типом `text/html`.
     pub fn new() -> Self {
         Self::default()
@@ -56,8 +95,15 @@ impl Response<Bytes> {
         self.inner.status()
     }
 
+    pub fn is_websocket_upgraded(&self) -> bool {
+        self.get_status() == StatusCode::SWITCHING_PROTOCOLS
+    }
+
     pub fn get_content_type(&self) -> Option<&str> {
-        self.inner.headers().get(CONTENT_TYPE).and_then(|v| v.to_str().ok())
+        self.inner
+            .headers()
+            .get(CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
     }
 
     /// Возвращает ссылку на бинарное тело ответа.
@@ -98,18 +144,35 @@ impl Response<Bytes> {
     }
 
     /// Устанавливаем кастомные заголовки.
-    pub fn header(mut self, key: &str, value: impl AsRef<str>) -> Self {
-        if let Ok(header_name) = HeaderName::from_bytes(key.as_bytes()) {
-            if let Ok(value) = HeaderValue::from_str(value.as_ref()) {
-                self.inner.headers_mut().insert(header_name, value);
-            } else {
+    pub fn header<T>(mut self, key: T, value: impl AsRef<str>) -> Self
+    where
+        T: TryInto<HeaderName>,
+        T::Error: Debug,
+    {
+        let val_str = value.as_ref();
+
+        let result = key
+            .try_into()
+            .map_err(|_| HeaderError::InvalidName)
+            .and_then(|header_name| {
+                HeaderValue::try_from(val_str)
+                    .map_err(HeaderError::InvalidValue)
+                    .map(|header_value| (header_name, header_value))
+            });
+
+        match result {
+            Ok((header_name, header_value)) => {
+                self.inner.headers_mut().insert(header_name, header_value);
+            }
+            Err(HeaderError::InvalidName) => {
+                warn!("Некорректное имя заголовка");
+            }
+            Err(HeaderError::InvalidValue(err)) => {
                 warn!(
-                    "Некорректные символы в значении заголовка: {}",
-                    value.as_ref()
+                    "Некорректные символы в значении заголовка: {}. Ошибка: {:?}",
+                    val_str, err
                 );
             }
-        } else {
-            warn!("Некорректное имя заголовка: {}", key);
         }
         self
     }
@@ -124,7 +187,7 @@ impl Response<Bytes> {
 
     /// Добавляет заголовок `Set-Cookie`.
     pub fn set_cookie(self, cookie: Cookie) -> Self {
-        self.header("Set-Cookie", cookie.to_string())
+        self.header(SET_COOKIE, cookie.to_string())
     }
 
     /// Сериализует ответ в формате HTTP/1.1, отправляет его в поток и возвращает `Self` для логов.
@@ -138,14 +201,23 @@ impl Response<Bytes> {
         let status_phrase = status.canonical_reason().unwrap_or("");
 
         // HTTP Status Line
-        write!(header_buf, "HTTP/1.1 {} {}\r\n", status.as_u16(), status_phrase)?;
+        write!(
+            header_buf,
+            "HTTP/1.1 {} {}\r\n",
+            status.as_u16(),
+            status_phrase
+        )?;
 
         let has_body = !status.is_informational()
             && status != StatusCode::NO_CONTENT
             && status != StatusCode::NOT_MODIFIED;
 
         if has_body {
-            write!(header_buf, "content-length: {}\r\n", self.inner.body().len())?;
+            write!(
+                header_buf,
+                "content-length: {}\r\n",
+                self.inner.body().len()
+            )?;
         }
 
         // Headers
@@ -245,6 +317,19 @@ impl Response<Bytes> {
         Self::new().status(StatusCode::BAD_REQUEST)
     }
 
+    pub fn websocket_upgraded() -> Self {
+        Self::new()
+            .status(StatusCode::SWITCHING_PROTOCOLS)
+    }
+
+    pub fn websocket_full_upgraded(accept_key: impl Into<String>) -> Self {
+        Self::new()
+            .status(StatusCode::SWITCHING_PROTOCOLS)
+            .header(UPGRADE, "websocket")
+            .header(CONNECTION, "upgrade")
+            .header(SEC_WEBSOCKET_ACCEPT, accept_key.into())
+    }
+
     /// Быстрый пустой ответ `404 Not Found`.
     pub fn not_found() -> Self {
         Self::new().status(StatusCode::NOT_FOUND)
@@ -292,19 +377,13 @@ mod tests {
         #[test]
         fn test_standard_display() {
             let response = Response::new().body("Test");
-            assert_eq!(
-                format!("{}", response),
-                "Status: 200, Body: Test"
-            );
+            assert_eq!(format!("{}", response), "Status: 200, Body: Test");
         }
 
         #[test]
         fn test_alternate_display() {
             let response = Response::new().body("Test");
-            assert_eq!(
-                format!("{:#}", response),
-                "\nStatus: 200,\nBody:\nTest"
-            );
+            assert_eq!(format!("{:#}", response), "\nStatus: 200,\nBody:\nTest");
         }
     }
 
@@ -318,7 +397,10 @@ mod tests {
                 .content_type("application/json; charset=utf-8")
                 .body("Test");
             assert_eq!(response.inner.status(), StatusCode::OK);
-            assert_eq!(response.get_content_type(), Some("application/json; charset=utf-8"));
+            assert_eq!(
+                response.get_content_type(),
+                Some("application/json; charset=utf-8")
+            );
             assert_eq!(response.inner.body().as_ref(), b"Test");
         }
 
@@ -366,7 +448,6 @@ mod tests {
             assert_eq!(expected, result_string);
             Ok(())
         }
-
 
         #[test]
         fn test_send_no_content_response() -> Result<(), Box<dyn std::error::Error>> {

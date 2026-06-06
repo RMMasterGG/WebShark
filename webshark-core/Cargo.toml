@@ -28,6 +28,8 @@ tracing-subscriber = "0.3.23"
 cookie = { version = "0.18.1", features = ["percent-encode", "signed", "private", "key-expansion"] }
 http = { version = "1.4.0" }
 
+webshark-macros = { path = "../webshark-macros" }
+
 [features]
 default = []
 

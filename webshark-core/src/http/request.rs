@@ -5,7 +5,8 @@
 
 use crate::auth::authentication::{Authentication, Authorization};
 use bytes::Bytes;
-use http::{HeaderMap, HeaderName, HeaderValue, Method, Uri, Request as HttpRequest};
+use http::{HeaderMap, HeaderName, HeaderValue, Method, Request as HttpRequest, Uri};
+use std::fmt::Debug;
 use std::io::Read;
 use std::str::FromStr;
 
@@ -56,7 +57,10 @@ impl Request<Bytes> {
         let mut headers = HeaderMap::new();
         for line in header_lines {
             if let Some((key, value)) = line.split_once(":") {
-                if let (Ok(name), Ok(val)) = (HeaderName::from_str(key.trim()), HeaderValue::from_str(value.trim())) {
+                if let (Ok(name), Ok(val)) = (
+                    HeaderName::from_str(key.trim()),
+                    HeaderValue::from_str(value.trim()),
+                ) {
                     headers.insert(name, val);
                 }
             }
@@ -91,11 +95,7 @@ impl Request<Bytes> {
 
         let inner = http_req_builder.body(Bytes::from(body_string))?;
 
-        let authentication = Authentication::new(
-            authorization,
-            None,
-            false
-        );
+        let authentication = Authentication::new(authorization, None, false);
 
         Ok(Self {
             inner,
@@ -136,14 +136,19 @@ impl Request<Bytes> {
     }
 
     /// Метод позволяет выбрать определённые данные из заголовка.
-    pub fn get_header(&self, key: &'static str) -> Option<&str> {
-        if let Ok(header_name) = HeaderName::from_bytes(key.as_bytes()) {
-            self.inner.headers()
-                .get(header_name)
-                .and_then(|value| value.to_str().ok())
-        } else {
-            None
-        }
+    pub fn get_header<T>(&self, key: T) -> Option<&str>
+    where
+        T: TryInto<HeaderName>,
+        T::Error: Debug {
+
+        key.try_into()
+            .ok()
+            .and_then(|header_name| {
+                self.inner
+                    .headers()
+                    .get(header_name)
+            })
+            .and_then(|header_value| header_value.to_str().ok())
     }
 }
 
@@ -152,6 +157,7 @@ mod tests {
     use super::*;
 
     mod request_parse {
+        use http::header::{CONTENT_LENGTH, HOST};
         use super::*;
 
         #[test]
@@ -164,8 +170,8 @@ mod tests {
 
             assert_eq!(Method::GET, request.method());
             assert_eq!("/index.html", request.uri().path());
-            assert_eq!(Some("localhost"), request.get_header("host"));
-            assert_eq!(Some("0"), request.get_header("content-length"));
+            assert_eq!(Some("localhost"), request.get_header(HOST));
+            assert_eq!(Some("0"), request.get_header(CONTENT_LENGTH));
             Ok(())
         }
 
@@ -189,7 +195,7 @@ mod tests {
             assert_eq!("/api/login", request.uri().path());
             assert_eq!(
                 Some(string_body_len.as_str()),
-                request.get_header("content-length")
+                request.get_header(CONTENT_LENGTH)
             );
             assert_eq!(body, request.body());
             Ok(())
@@ -197,6 +203,7 @@ mod tests {
     }
 
     mod request_get_header {
+        use http::header::{AUTHORIZATION, HOST};
         use super::*;
 
         #[test]
@@ -207,7 +214,7 @@ mod tests {
 
             let request = Request::parse(&mut raw_request)?;
 
-            assert_eq!(Some("localhost"), request.get_header("host"));
+            assert_eq!(Some("localhost"), request.get_header(HOST));
             Ok(())
         }
 
@@ -216,7 +223,7 @@ mod tests {
             let mut raw_request = "GET /index.html HTTP/1.1\r\nHost: localhost\r\n\r\n".as_bytes();
             let request = Request::parse(&mut raw_request)?;
 
-            assert_eq!(None, request.get_header("authorization"));
+            assert_eq!(None, request.get_header(AUTHORIZATION));
             Ok(())
         }
     }
