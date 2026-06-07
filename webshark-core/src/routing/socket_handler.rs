@@ -3,56 +3,84 @@
 //! Позволяет роутеру регистрировать и вызывать как функции без аргументов,
 //! так и функции, принимающие объект [`Request`].
 
-use bytes::Bytes;
-use tokio::io::DuplexStream;
 use crate::Request;
+use crate::routing::socket_context::WebSocketContext;
+use bytes::Bytes;
+use crate::utils::other::{BoxFuture, BoxedHandler};
 
 /// Трейт, инкапсулирующий вызов эндпоинта.
 ///
 /// Использует маркер обобщения `Args` для разделения функций с разной сигнатурой
 /// на этапе компиляции, предотвращая конфликт реализаций.
 pub trait SocketHandler<Args> {
-    fn invoke(&self, req: Request<Bytes>, conn: DuplexStream);
+    fn invoke(&self, req: Request<Bytes>, ctx: WebSocketContext) -> BoxFuture<'static, ()>;
 }
 
-impl<F> SocketHandler<()> for F
+impl<F, Fut> SocketHandler<()> for F
 where
-    F: Fn() + Send + Sync + 'static,
+    F: Fn() -> Fut + Send + Sync + 'static,
+    Fut: Future<Output=()> + Send + 'static,
 {
-    fn invoke(&self, _req: Request<Bytes>, _conn: DuplexStream) {
-        self()
+    fn invoke(&self, _req: Request<Bytes>, _ctx: WebSocketContext) -> BoxFuture<'static, ()> {
+        let fut = self();
+        Box::pin(async move { fut.await })
     }
 }
 
-/// Реализация для функций и замыканий, не принимающих аргументов.
-impl<F> SocketHandler<DuplexStream> for F
+impl<F, Fut> SocketHandler<Request<Bytes>> for F
 where
-    F: Fn(DuplexStream) + Send + Sync + 'static,
+    F: Fn(Request<Bytes>) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output=()> + Send + 'static,
 {
-    fn invoke(&self, _req: Request<Bytes>, conn: DuplexStream) {
-        self(conn)
+    fn invoke(&self, req: Request<Bytes>, _ctx: WebSocketContext) -> BoxFuture<'static, ()> {
+        let fut = self(req);
+        Box::pin(async move { fut.await })
+    }
+}
+
+impl<F, Fut> SocketHandler<WebSocketContext> for F
+where
+    F: Fn(WebSocketContext) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output=()> + Send + 'static,
+{
+    fn invoke(&self, _req: Request<Bytes>, ctx: WebSocketContext) -> BoxFuture<'static, ()> {
+        let fut = self(ctx);
+        Box::pin(async move { fut.await })
+    }
+}
+
+impl<H, Args> SocketHandler<(Request<Bytes>, WebSocketContext)> for BoxedHandler<H, Args>
+where
+    H: SocketHandler<Args> + Sync + Send + 'static,
+    Args: Send + Sync + 'static,
+{
+    fn invoke(
+        &self,
+        req: Request<Bytes>,
+        ctx: WebSocketContext,
+    ) -> BoxFuture<'static, ()> {
+        self.inner.invoke(req, ctx)
     }
 }
 
 /// Для функций fn(req, conn)
-impl<F> SocketHandler<(Request<Bytes>, DuplexStream)> for F
+impl<F, Fut> SocketHandler<(Request<Bytes>, WebSocketContext)> for F
 where
-    F: Fn(Request<Bytes>, DuplexStream) + Send + Sync + 'static,
+    F: Fn(Request<Bytes>, WebSocketContext) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output=()> + Send + 'static,
 {
-    fn invoke(&self, req: Request<Bytes>, conn: DuplexStream) {
-        self(req, conn)
+    fn invoke(&self, req: Request<Bytes>, ctx: WebSocketContext) -> BoxFuture<'static, ()> {
+        let fut = self(req, ctx);
+        Box::pin(async move { fut.await })
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use http::Method;
     use super::*;
+    use http::Method;
 
     mod handler_trait_polymorphism {
         use super::*;
-
-
     }
 }
-

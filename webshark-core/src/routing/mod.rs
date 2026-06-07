@@ -4,3 +4,4 @@ pub mod router;
 pub mod scope;
 pub mod socket_handler;
 pub mod socket;
+pub mod socket_context;

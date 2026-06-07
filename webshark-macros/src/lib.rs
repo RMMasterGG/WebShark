@@ -19,3 +19,8 @@ pub fn put(_attr: TokenStream, item: TokenStream) -> TokenStream {
 pub fn delete(_attr: TokenStream, item: TokenStream) -> TokenStream {
     item
 }
+
+#[proc_macro_attribute]
+pub fn websocket(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    item
+}

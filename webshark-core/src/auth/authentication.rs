@@ -2,28 +2,35 @@
 //! к нему фаел для удобства при работе с параметрами функции
 //!
 
+use crate::utils::other::BoxFuture;
 use crate::{Request, Response};
 use base64::{Engine, prelude::BASE64_STANDARD};
-use std::sync::Arc;
 use bytes::Bytes;
+use std::sync::Arc;
 
 #[derive(Debug, Default, Clone)]
 pub struct Authentication {
     credentials: Authorization,
     user_details: Option<UserDetails>,
-    is_authenticated: bool
+    is_authenticated: bool,
 }
 
 impl Authentication {
-    pub fn new(credentials: Authorization, user_details: Option<UserDetails>, is_authenticated: bool) -> Self {
+    pub fn new(
+        credentials: Authorization,
+        user_details: Option<UserDetails>,
+        is_authenticated: bool,
+    ) -> Self {
         Self {
             credentials,
             user_details,
             is_authenticated,
         }
     }
-    
-    pub fn credentials(&self) -> &Authorization { &self.credentials }
+
+    pub fn credentials(&self) -> &Authorization {
+        &self.credentials
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -31,8 +38,8 @@ pub enum Authorization {
     Bearer(String),
     Basic(String, String),
     #[default]
-    None,    // Если заголовок не передан
-    Invalid,               // Если заголовок есть, но формат сломан
+    None, // Если заголовок не передан
+    Invalid, // Если заголовок есть, но формат сломан
 }
 
 impl Authorization {
@@ -98,51 +105,73 @@ impl FilterChain {
         Self { filters }
     }
 
-    pub fn execute(
+    pub async fn execute<F, Fut>(
         &mut self,
         request: Request<Bytes>,
-        handler: impl Fn(Request<Bytes>) -> Result<Response<Bytes>, &'static str>,
-    ) -> Result<Response<Bytes>, &'static str> {
-        let mut context = FilterContext::new(&self.filters);
-        context.next_filter(request, &handler)
+        handler: F,
+    ) -> Result<Response<Bytes>, &'static str>
+    where
+        F: Fn(Request<Bytes>) -> BoxFuture<'static, Result<Response<Bytes>, &'static str>>
+            + Send
+            + Sync
+            + 'static,
+    {
+        let mut context = FilterContext::new(self.filters.clone(), Box::new(handler));
+        context.next_filter(request).await
     }
 }
 
-pub struct FilterContext<'a> {
-    filters: &'a [Arc<dyn Filter>],
+pub struct FilterContext {
+    filters: Vec<Arc<dyn Filter>>,
     current_index: usize,
+    handler: Box<
+        dyn Fn(Request<Bytes>) -> BoxFuture<'static, Result<Response<Bytes>, &'static str>>
+            + Send
+            + Sync,
+    >,
 }
 
-impl<'a> FilterContext<'a> {
-    fn new(filters: &'a [Arc<dyn Filter>]) -> Self {
+impl FilterContext {
+    fn new(
+        filters: Vec<Arc<dyn Filter>>,
+        handler: Box<
+            dyn Fn(Request<Bytes>) -> BoxFuture<'static, Result<Response<Bytes>, &'static str>>
+                + Send
+                + Sync,
+        >,
+    ) -> Self {
         Self {
             filters,
             current_index: 0,
+            handler,
         }
     }
 
     pub fn next_filter(
         &mut self,
         request: Request<Bytes>,
-        handler: &dyn Fn(Request<Bytes>) -> Result<Response<Bytes>, &'static str>
-    ) -> Result<Response<Bytes>, &'static str> {
+    ) -> BoxFuture<'_, Result<Response<Bytes>, &'static str>> {
         if self.current_index < self.filters.len() {
             let index = self.current_index;
             self.current_index += 1;
 
-            let filter = &self.filters[index];
-            filter.do_filter(request, self, handler)
+            let filter = self.filters[index].clone();
+
+            Box::pin(async move {
+                filter.do_filter(request, self).await
+            })
         } else {
-            handler(request)
+            Box::pin(async move {
+                (self.handler)(request).await
+            })
         }
     }
 }
 
-pub trait Filter: Send + Sync {
-    fn do_filter(
+pub trait Filter: Send + Sync + 'static {
+    fn do_filter<'a>(
         &self,
         request: Request<Bytes>,
-        context: &mut FilterContext,
-        handler: &dyn Fn(Request<Bytes>) -> Result<Response<Bytes>, &'static str>,
-    ) -> Result<Response<Bytes>, &'static str>;
+        context: &'a mut FilterContext,
+    ) -> BoxFuture<'a, Result<Response<Bytes>, &'static str>>;
 }
