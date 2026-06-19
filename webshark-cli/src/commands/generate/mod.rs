@@ -84,7 +84,7 @@ pub fn command_generate(args: Vec<String>) {
         if let Event::Key(key) = event::read().unwrap() {
             match key.code {
                 // Стрелочка ВВЕРХ
-                KeyCode::Up => {
+                KeyCode::Down => {
                     if selected_index > 0 {
                         selected_index -= 1;
                     } else {
@@ -92,7 +92,7 @@ pub fn command_generate(args: Vec<String>) {
                     }
                 }
                 // Стрелочка ВНИЗ
-                KeyCode::Down => {
+                KeyCode::Up => {
                     if selected_index < items.len() - 1 {
                         selected_index += 1;
                     } else {

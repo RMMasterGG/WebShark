@@ -18,8 +18,6 @@ fn main() {
         .add_alias("g")
         .add_subcommand(Command::new("controller", "Create component", command_controller).add_alias("c"));
 
-
-
     let app = Cli::new("webshark")
         .add_command(command_new)
         .add_command(command_generate);
