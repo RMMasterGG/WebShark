@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["FIN_BIT","OPCODE_BINARY","OPCODE_CLOSE","OPCODE_PING","OPCODE_PONG","OPCODE_TEXT"],"struct":["WebSocketContext"],"trait":["AsyncDuplex"]};

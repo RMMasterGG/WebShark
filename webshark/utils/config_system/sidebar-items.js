@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"static":["APP_CONFIG"],"struct":["Config","CorsConfig","DatabaseConfig","LoggingConfig","ServerConfig"]};

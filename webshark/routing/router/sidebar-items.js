@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["Handler","RouteType"],"struct":["CompiledRoute","Router"],"type":["HttpHandler","WSHandler","WTHandler"]};
