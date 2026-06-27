@@ -8,6 +8,8 @@ use bytes::Bytes;
 use http::{HeaderMap, HeaderName, HeaderValue, Method, Request as HttpRequest, Uri};
 use std::fmt::Debug;
 use std::str::FromStr;
+use std::sync::OnceLock;
+use cookie::CookieJar;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite};
 
 /// Структура запроса.
@@ -17,6 +19,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite};
 pub struct Request<B> {
     inner: HttpRequest<B>,
     authentication: Authentication,
+    cookies: OnceLock<CookieJar>,
 }
 
 /// Реализация, позволяющая преобразовать данные из потока в структуру запроса.
@@ -130,6 +133,7 @@ impl Request<Bytes> {
         Ok(Self {
             inner,
             authentication,
+            cookies: OnceLock::new(),
         })
     }
 
@@ -165,6 +169,8 @@ impl Request<Bytes> {
         &self.authentication.credentials()
     }
 
+    pub fn inner(&self) -> &HttpRequest<Bytes> { &self.inner }
+
     /// Метод позволяет выбрать определённые данные из заголовка.
     pub fn get_header<T>(&self, key: T) -> Option<&str>
     where
@@ -183,7 +189,7 @@ impl Request<Bytes> {
 //     use super::*;
 //
 //     mod request_parse {
-//         use http::header::{CONTENT_LENGTH, HOST};
+//         use http_util::header::{CONTENT_LENGTH, HOST};
 //         use super::*;
 //
 //         #[test]
@@ -229,7 +235,7 @@ impl Request<Bytes> {
 //     }
 //
 //     mod request_get_header {
-//         use http::header::{AUTHORIZATION, HOST};
+//         use http_util::header::{AUTHORIZATION, HOST};
 //         use super::*;
 //
 //         #[test]

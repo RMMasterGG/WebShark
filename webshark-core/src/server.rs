@@ -17,9 +17,9 @@ use http::header::{
     UPGRADE,
 };
 use std::sync::Arc;
-use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, DuplexStream, split};
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, split};
 use tokio::net::TcpListener;
-use tracing::{error, info, warn};
+use tracing::{error, info};
 use tracing_subscriber::fmt;
 
 pub struct Server {
@@ -30,6 +30,18 @@ impl Server {
     /// Создает новый экземпляр сервера с привязанным маршрутизатором.
     pub fn new(router: Router) -> Self {
         Self { router }
+    }
+
+    pub fn http1(self, is: bool) -> Self {
+        self
+    }
+
+    pub fn http2(self, is: bool) -> Self {
+        self
+    }
+
+    pub fn http3(self, is: bool) -> Self {
+        self
     }
 
     /// Запускает HTTP-сервер на указанном сетевом адресе.
@@ -140,7 +152,7 @@ fn validate_cors_and_origin(request: &Request<Bytes>) -> bool {
         let host = config.server().server_and_port();
 
         // TODO: [Продакшен Оптимизация] Избежать аллокаций динамических строк `format!` через кучу при каждом запросе.
-        // Заранее сгенерировать строки "http://..." и "https://..." на этапе `init_config` и сохранить их в конфиг,
+        // Заранее сгенерировать строки "http_util://..." и "https://..." на этапе `init_config` и сохранить их в конфиг,
         // либо проверять вхождение через побайтовое сравнение срезов.
         let is_valid_http = referer.contains(format!("http://{}", host).as_str());
         let is_valid_https = referer.contains(format!("https://{}", host).as_str());

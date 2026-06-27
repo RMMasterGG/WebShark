@@ -40,7 +40,7 @@ where
     }
 }
 
-impl<H, Args> RouteHandler<(Request<Bytes>)> for BoxedHandler<H, Args>
+impl<H, Args> RouteHandler<Request<Bytes>> for BoxedHandler<H, Args>
 where
     H: RouteHandler<Args> + Sync + Send + 'static,
     Args: Send + Sync + 'static,
@@ -55,7 +55,7 @@ where
 
 // #[cfg(test)]
 // mod tests {
-//     use http::Method;
+//     use http_util::Method;
 //     use super::*;
 //
 //     fn mock_index_handler() -> Response<Bytes> {

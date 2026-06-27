@@ -3,4 +3,6 @@ resolver = "2"
 members = [
     "webshark-core",
     "webshark-cli"
-, "webshark-macros"]
+    , "webshark-macros",
+    "webshark-demo"
+]

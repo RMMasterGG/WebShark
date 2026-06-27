@@ -3,9 +3,8 @@
 use bytes::Bytes;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tracing::{error, info};
-use tokio_tungstenite::tungstenite::{Error as WsError, Message, Utf8Bytes};
+use tokio_tungstenite::tungstenite::{Error as WsError, Message};
 use tokio_tungstenite::tungstenite::error::ProtocolError;
-use crate::Request;
 
 const FIN_BIT: u8 = 0x80; // 1000 0000 (Флаг завершения сообщения)
 

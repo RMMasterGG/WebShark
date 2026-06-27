@@ -39,14 +39,24 @@
 //! ## Проект планирует переезд на Hyper.
 
 pub mod dto;
-pub mod http;
+pub mod http_util;
 pub mod utils;
 pub mod routing;
 pub mod auth;
 pub mod server;
 
-pub use http::request::Request;
-pub use http::response::Response;
+pub use http_util::request::Request;
+pub use http_util::response::Response;
 pub use routing::route::Route;
 pub use routing::router::Router;
 pub use server::Server;
+
+// Сторонние зависимости
+pub use ::http;
+pub use ::tokio;
+pub use ::bytes;
+pub use ::tracing;
+pub use ::cookie;
+pub use ::tokio_tungstenite;
+pub use ::webshark_macros as macros;
+

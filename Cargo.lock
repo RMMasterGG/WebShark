@@ -2596,6 +2596,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "webshark-demo"
+version = "0.1.0"
+dependencies = [
+ "webshark",
+]
+
+[[package]]
 name = "webshark-macros"
 version = "0.1.0"
 dependencies = [

@@ -233,6 +233,8 @@ impl Router {
     }
 }
 
+// TODO Асинхронные тесты
+
 // #[cfg(test)]
 // mod tests {
 //     use super::*;

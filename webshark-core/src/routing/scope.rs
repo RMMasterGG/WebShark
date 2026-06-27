@@ -1,7 +1,7 @@
-use std::sync::Arc;
-use crate::{Route};
+use crate::Route;
 use crate::auth::authentication::Filter;
 use crate::routing::socket::Socket;
+use std::sync::Arc;
 
 #[derive(Default)]
 pub struct Scope {
@@ -15,7 +15,10 @@ pub struct Scope {
 
 impl Scope {
     pub fn new(prefix: &'static str) -> Self {
-        Self { prefix, ..Default::default() }
+        Self {
+            prefix,
+            ..Default::default()
+        }
     }
 
     pub fn with_filter(mut self, filter: impl Filter + 'static) -> Self {
@@ -35,6 +38,14 @@ impl Scope {
 
     pub fn add_webtransport(mut self, socket: Socket) -> Self {
         self.transports.push(socket);
+        self
+    }
+
+    pub fn configure<F>(mut self, f: F) -> Self
+    where
+        F: FnOnce(&mut Scope),
+    {
+        f(&mut self);
         self
     }
 
@@ -59,7 +70,9 @@ impl Scope {
         std::mem::take(&mut self.nested_scopes)
     }
 
-    pub fn transports(&mut self) -> Vec<Socket> { std::mem::take(&mut self.transports) }
+    pub fn transports(&mut self) -> Vec<Socket> {
+        std::mem::take(&mut self.transports)
+    }
 
     pub fn filters(&mut self) -> Vec<Arc<dyn Filter>> {
         std::mem::take(&mut self.filters)

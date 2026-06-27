@@ -7,9 +7,8 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use http::Method;
 use bytes::Bytes;
-use crate::{Request, Response};
+use crate::{Request};
 use crate::routing::route_handler::RouteHandler;
-use crate::routing::socket_handler::{SocketHandler};
 use crate::utils::other::BoxedHandler;
 
 /// Структура, представляющая зарегистрированный эндпоинт.
