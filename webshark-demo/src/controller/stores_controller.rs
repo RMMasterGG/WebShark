@@ -12,19 +12,16 @@ pub struct StoresController;
 #[controller]
 impl StoresController {
     pub fn configure(scope_ref: &mut Scope) {
-        let new_route_home_handler = Route::new(Method::GET, "/test", Self::home_handler);
-        let new_route_cookie_handler = Route::new(Method::GET, "/cookie", Self::cookie_handler);
-
         let mut scope = mem::take(scope_ref);
 
         scope = scope
-            .add_route(new_route_home_handler)
-            .add_route(new_route_cookie_handler);
+            .add_route(Self::new_route_home_handler())
+            .add_route(Self::new_route_cookie_handler());
 
         *scope_ref = scope;
     }
 
-    #[get(path = "/test")]
+    #[get(path = "/sosal")]
     pub async fn home_handler() -> Response<Bytes> {
         let file = match send_http_file("home.html".to_string()) {
             Ok(file) => file,

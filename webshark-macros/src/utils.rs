@@ -63,6 +63,7 @@ pub(crate) fn method_impl(attr: TokenStream, item: TokenStream, method_path: syn
 
     let new_fn_name = quote::format_ident!("new_route_{}", fn_name);
 
+    println!("{:}", new_fn_name);
 
     let path_str = args.path;
     let filters = args.filters;
@@ -77,7 +78,6 @@ pub(crate) fn method_impl(attr: TokenStream, item: TokenStream, method_path: syn
             println!("Регистрируем путь: {}", #path_str);
 
             Route::new(Method::#method_name, #path_str, Self::#fn_name)
-
         }
     };
 
