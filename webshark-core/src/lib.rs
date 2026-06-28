@@ -59,4 +59,5 @@ pub use ::tracing;
 pub use ::cookie;
 pub use ::tokio_tungstenite;
 pub use ::webshark_macros as macros;
+pub use webshark_macros::main as main;
 

@@ -1,25 +1,13 @@
-use std::mem;
 use webshark::bytes::Bytes;
 use webshark::macros::{controller, get, post};
-use webshark::{Request, Response, Route};
+use webshark::{Request, Response};
 use webshark::cookie::Cookie;
-use webshark::http::Method;
-use webshark::routing::scope::Scope;
 use crate::helpers::html_file::send_http_file;
 
 pub struct StoresController;
 
 #[controller]
 impl StoresController {
-    pub fn configure(scope_ref: &mut Scope) {
-        let mut scope = mem::take(scope_ref);
-
-        scope = scope
-            .add_route(Self::new_route_home_handler())
-            .add_route(Self::new_route_cookie_handler());
-
-        *scope_ref = scope;
-    }
 
     #[get(path = "/sosal")]
     pub async fn home_handler() -> Response<Bytes> {

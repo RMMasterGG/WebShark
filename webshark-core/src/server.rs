@@ -17,7 +17,7 @@ use http::header::{
     UPGRADE,
 };
 use std::sync::Arc;
-use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, split};
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tracing::{error, info};
 use tracing_subscriber::fmt;
@@ -30,6 +30,12 @@ impl Server {
     /// Создает новый экземпляр сервера с привязанным маршрутизатором.
     pub fn new(router: Router) -> Self {
         Self { router }
+    }
+
+    pub fn bind(ip: impl Into<String>) -> Self {
+        Self {
+            router: Router::new()
+        }
     }
 
     pub fn http1(self, is: bool) -> Self {

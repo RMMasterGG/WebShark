@@ -21,6 +21,13 @@ impl Scope {
         }
     }
 
+    pub fn auto(prefix: &'static str) -> Self {
+        Self {
+            prefix,
+            ..Default::default()
+        }
+    }
+
     pub fn with_filter(mut self, filter: impl Filter + 'static) -> Self {
         self.filters.push(Arc::new(filter));
         self

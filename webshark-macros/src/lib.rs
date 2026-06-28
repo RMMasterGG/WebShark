@@ -1,7 +1,10 @@
-use proc_macro::TokenStream;
-use crate::utils::method_impl;
-
 mod utils;
+
+use proc_macro::TokenStream;
+use crate::utils::controller::controller_impl;
+use crate::utils::main::main_impl;
+use crate::utils::route::method_impl;
+use crate::utils::socket::ws_impl;
 
 #[proc_macro_attribute]
 pub fn get(attr: TokenStream, item: TokenStream) -> TokenStream {
@@ -24,8 +27,8 @@ pub fn delete(attr: TokenStream, item: TokenStream) -> TokenStream {
 }
 
 #[proc_macro_attribute]
-pub fn websocket(_attr: TokenStream, item: TokenStream) -> TokenStream {
-    item
+pub fn websocket(attr: TokenStream, item: TokenStream) -> TokenStream {
+    ws_impl(attr, item)
 }
 
 #[proc_macro_attribute]
@@ -34,13 +37,13 @@ pub fn webtransport(_attr: TokenStream, item: TokenStream) -> TokenStream {
 }
 
 #[proc_macro_attribute]
-pub fn controller(_attr: TokenStream, item: TokenStream) -> TokenStream {
-    item
+pub fn controller(attr: TokenStream, item: TokenStream) -> TokenStream {
+    controller_impl(attr, item)
 }
 
 #[proc_macro_attribute]
-pub fn service(_attr: TokenStream, item: TokenStream) -> TokenStream {
-    item
+pub fn main(attr: TokenStream, item: TokenStream) -> TokenStream {
+    main_impl(attr, item)
 }
 
 #[proc_macro_attribute]
