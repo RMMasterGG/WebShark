@@ -6,10 +6,10 @@ use crate::utils::parse::MethodArgs;
 pub(crate) fn controller_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
     let input = syn::parse_macro_input!(item as syn::ItemImpl);
 
-    // let args = syn::parse_macro_input!(attr as MethodArgs);
-    //
-    // let path_str = args.path;
-    // let filters = args.filters;
+    let args = syn::parse_macro_input!(attr as MethodArgs);
+
+    let path_str = args.path;
+    let filters = args.filters;
 
     let impl_name = &input.self_ty;
 
@@ -55,13 +55,24 @@ pub(crate) fn controller_impl(attr: TokenStream, item: TokenStream) -> TokenStre
         #input
 
         impl #impl_name {
-            pub fn configure(scope_ref: &mut webshark::routing::scope::Scope) {
-                let mut scope = std::mem::take(scope_ref);
+            pub fn scope() -> webshark::routing::scope::Scope {
+                let mut scope = webshark::routing::scope::Scope::new(#path_str);
+
+                #[inline(always)]
+                fn __assert_is_filter<T: webshark::auth::authentication::Filter>() {}
+
+               #(
+                    __assert_is_filter::<#filters>();
+                )*
+
+                #(
+                    scope = scope.with_filter(#filters {});
+                )*
 
                 scope = scope
                     #( #all_function_names )*;
 
-                *scope_ref = scope;
+                scope
             }
         }
     };

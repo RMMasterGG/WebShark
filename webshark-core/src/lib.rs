@@ -44,6 +44,7 @@ pub mod utils;
 pub mod routing;
 pub mod auth;
 pub mod server;
+pub mod config;
 
 pub use http_util::request::Request;
 pub use http_util::response::Response;
@@ -59,5 +60,7 @@ pub use ::tracing;
 pub use ::cookie;
 pub use ::tokio_tungstenite;
 pub use ::webshark_macros as macros;
-pub use webshark_macros::main as main;
+pub use ::webshark_macros::main as main;
+pub use ::serde;
+pub use ::serde_with;
 

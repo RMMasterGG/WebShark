@@ -1,6 +1,8 @@
 mod utils;
 
 use proc_macro::TokenStream;
+use quote::quote;
+use syn::{ItemFn, ItemImpl, ItemStruct};
 use crate::utils::controller::controller_impl;
 use crate::utils::main::main_impl;
 use crate::utils::route::method_impl;
@@ -44,6 +46,50 @@ pub fn controller(attr: TokenStream, item: TokenStream) -> TokenStream {
 #[proc_macro_attribute]
 pub fn main(attr: TokenStream, item: TokenStream) -> TokenStream {
     main_impl(attr, item)
+}
+
+#[proc_macro_attribute]
+pub fn config(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    let item = syn::parse_macro_input!(item as ItemStruct);
+
+    let expended = quote!(
+        #item
+    );
+
+    TokenStream::from(expended)
+}
+
+#[proc_macro_attribute]
+pub fn config_file(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    let item = syn::parse_macro_input!(item as ItemStruct);
+
+    let expended = quote!(
+        #item
+    );
+
+    TokenStream::from(expended)
+}
+
+#[proc_macro_attribute]
+pub fn provider(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    let item = syn::parse_macro_input!(item as ItemImpl);
+
+    let expended = quote!(
+        #item
+    );
+
+    TokenStream::from(expended)
+}
+
+#[proc_macro_attribute]
+pub fn bean(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    let item = syn::parse_macro_input!(item as ItemFn);
+
+    let expended = quote!(
+        #item
+    );
+
+    TokenStream::from(expended)
 }
 
 #[proc_macro_attribute]

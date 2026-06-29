@@ -10,7 +10,7 @@ use crate::utils::console_util::SHARK_BANNER;
 use crate::utils::websocket::generate_accept_key;
 use crate::{Request, Response};
 use bytes::Bytes;
-use http::Method;
+use http::{Extensions, Method};
 use http::header::{
     ACCESS_CONTROL_ALLOW_HEADERS, ACCESS_CONTROL_ALLOW_METHODS, ACCESS_CONTROL_ALLOW_ORIGIN,
     ACCESS_CONTROL_REQUEST_HEADERS, ACCESS_CONTROL_REQUEST_METHOD, CONNECTION, ORIGIN, REFERER,
@@ -21,21 +21,21 @@ use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tracing::{error, info};
 use tracing_subscriber::fmt;
+use crate::config::server_config::ServerConfig;
 
 pub struct Server {
     router: Router,
+    configs: Extensions,
 }
 
 impl Server {
     /// Создает новый экземпляр сервера с привязанным маршрутизатором.
-    pub fn new(router: Router) -> Self {
-        Self { router }
+    pub fn new(router: Router, configs: Extensions) -> Self {
+        Self { router, configs, }
     }
 
-    pub fn bind(ip: impl Into<String>) -> Self {
-        Self {
-            router: Router::new()
-        }
+    pub fn configs(&self) -> &Extensions {
+        &self.configs
     }
 
     pub fn http1(self, is: bool) -> Self {
@@ -86,9 +86,13 @@ impl Server {
     ///     response
     /// }
     /// ```
-    pub async fn start_server(&self) -> std::io::Result<()> {
-        Config::init_config();
-        let config = APP_CONFIG.get().unwrap();
+    pub async fn start_server(self) -> std::io::Result<()> {
+
+        let shared_configs = Arc::new(self.configs);
+
+        let server_cfg = shared_configs.get::<ServerConfig>().unwrap();
+
+        let router = Arc::new(self.router.clone());
 
         let format = fmt::format()
             .with_thread_ids(true)
@@ -98,9 +102,7 @@ impl Server {
         // Logging subscribe
         tracing_subscriber::fmt().event_format(format).init();
 
-        let tcp_listener = TcpListener::bind(config.server().server_and_port()).await?;
-
-        let router = Arc::new(self.router.clone());
+        let tcp_listener = TcpListener::bind(&server_cfg.server_and_port()).await?;
 
         println!("{}", SHARK_BANNER);
 
@@ -108,10 +110,11 @@ impl Server {
 
         loop {
             let (stream, _) = tcp_listener.accept().await?;
-            let router_clone = router.clone();
+            let r = router.clone();
+            let c = shared_configs.clone();
 
             tokio::spawn(async move {
-                handle_client(stream, router_clone).await;
+                handle_client(stream, r, c).await;
             });
         }
     }
@@ -224,7 +227,7 @@ fn validate_cors_and_origin(request: &Request<Bytes>) -> bool {
 ///
 /// Метод парсит входящие байты в [`Request`], ищет подходящий эндпоинт
 /// в [`Router`], вызывает его и отправляет полученный [`Response`] обратно в сеть.
-async fn handle_client<T>(mut stream: T, routers: Arc<Router>)
+async fn handle_client<T>(mut stream: T, routers: Arc<Router>,config: Arc<Extensions>)
 where
     T: AsyncRead + AsyncWrite + Unpin + Send + 'static + Sync,
 {

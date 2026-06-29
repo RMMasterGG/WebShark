@@ -6,7 +6,7 @@ use crate::helpers::html_file::send_http_file;
 
 pub struct StoresController;
 
-#[controller]
+#[controller(path = "/")]
 impl StoresController {
 
     #[get(path = "/sosal")]

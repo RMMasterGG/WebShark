@@ -1,15 +1,15 @@
 use syn::parse::{Parse, ParseStream};
-use syn::{Expr, ExprArray, LitStr, Token};
+use syn::{Expr, ExprArray, LitStr, Path, Token};
 
 pub struct MethodArgs {
     pub path: String,
-    pub filters: Vec<Expr>,
+    pub filters: Vec<Path>,
 }
 
 impl Parse for MethodArgs {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let mut path: String = String::new();
-        let mut filters: Vec<Expr> = Vec::new();
+        let mut filters: Vec<Path> = Vec::new();
         if input.peek(LitStr) {
             let lit: LitStr = input.parse()?;
             path = lit.value();
@@ -33,7 +33,17 @@ impl Parse for MethodArgs {
                     path = lit.value();
                 } else if ident == "filters" {
                     let array: ExprArray = input.parse()?;
-                    filters = array.elems.into_iter().collect();
+                    for element in array.elems {
+                        if let Expr::Path(expr_path) = element {
+                            filters.push(expr_path.path);
+                        } else {
+                            return Err(syn::Error::new_spanned(
+                                element,
+                                "Ошибка WebShark: Внутри массива filters должны быть только имена структур-фильтров!",
+                            ));
+                        }
+                    }
+
                 } else {
                     return Err(syn::Error::new(
                         ident.span(),

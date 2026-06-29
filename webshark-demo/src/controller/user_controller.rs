@@ -6,14 +6,13 @@ use webshark::tokio_tungstenite::tungstenite::Message;
 use webshark::tracing::{error, info};
 use webshark::{Request, Response};
 use webshark::macros::{controller, get, post, websocket};
-use webshark::routing::scope::Scope;
 use crate::filters::auth_filter::AuthFilter;
 
 pub struct UserController;
 
-#[controller(name = "/user", filters = [])]
+#[controller(path = "/users", filters = [AuthFilter])]
 impl UserController {
-    
+
     #[get(path = "/test")]
     pub async fn home_handler() -> Response<Bytes> {
         let file = match send_http_file("home.html".to_string()) {

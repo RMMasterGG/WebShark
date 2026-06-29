@@ -1,3 +1,4 @@
+use std::fmt;
 use crate::Route;
 use crate::auth::authentication::Filter;
 use crate::routing::socket::Socket;
@@ -11,6 +12,20 @@ pub struct Scope {
     sockets: Vec<Socket>,
     transports: Vec<Socket>,
     nested_scopes: Vec<Scope>,
+}
+
+impl fmt::Debug for Scope {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Scope")
+            .field("prefix", &self.prefix)
+            // Вместо dyn Filter выводим количество зарегистрированных фильтров
+            .field("filters_count", &self.filters.len())
+            .field("routes", &self.routes.len())
+            .field("sockets", &self.sockets.len())
+            .field("transports", &self.transports.len())
+            .field("nested_scopes", &self.nested_scopes)
+            .finish()
+    }
 }
 
 impl Scope {
