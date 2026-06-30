@@ -4,55 +4,59 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+# Внутренние макросы
 webshark-macros = { path = "../webshark-macros" }
 
-
+# Асинхронное ядро и утилиты
 tokio = { version = "1", features = ["full"] }
 tokio-util = { version = "0.7", features = ["compat"] }
+bytes = "1.11.1"
+rand = { version = "*" }
 uuid = { version = "1.23.0", features = ["v4", "v7"] }
 
-# Скорая замена на продвинутые парсеры
+# Утилиты для HTTP/1.1 и HTTP/2
 tokio-tungstenite = { version = "0.29.0" }
 hyper = { version = "1.10.0", features = ["full"] }
 hyper-util = { version = "0.1.20", features = ["full"] }
-quinn = { version = "0.11.11" }
+
+# Стеки для HTTP/3.0 и QUIC (Опциональные)
+quinn = { version = "0.11.11", optional = true }
 h3 = { version = "0.0.8", optional = true }
 h3-quinn = { version = "0.0.10", optional = true }
 rustls = { version = "0.23", default-features = false, optional = true }
-rcgen = {version = "0.14.8", features = ["ring"], optional = true }
+rcgen = { version = "0.14.8", features = ["ring"], optional = true }
 
-rand = { version = "*"}
-
+# Сериализация и Конфигурация
 serde = { version = "1.0", features = ["derive"] }
 serde_with = "3.11"
 toml = "0.8"
 bincode = "1.3.3"
-bytes = "1.11.1"
 matchit = "0.9.0"
+config = { version = "0.15.25" }
 
+# Веб-утилиты
+http = { version = "1.4.0" }
+cookie = { version = "0.18.1", features = ["percent-encode", "signed", "private", "key-expansion"] }
 mime = "0.3.17"
+directories = { version = "6.0.0" }
 
+# Криптография и Хеширование
 base64 = "0.22"
 sha1 = "0.11.0"
 
+# Логирование и Трассировка
+log = "0.4.29"
 tracing = "0.1.44"
 tracing-subscriber = "0.3.23"
 
-cookie = { version = "0.18.1", features = ["percent-encode", "signed", "private", "key-expansion"] }
-http = { version = "1.4.0" }
-
-config = { version = "0.15.25" }
-directories = { version = "6.0.0" }
-
+# Утилита автоматизации
 inventory = { version = "0.3", optional = true }
-log = "0.4.29"
 
 [features]
 default = []
 
-http3 = ["dep:rcgen", "dep:rustls", "dep:h3-quinn", "dep:h3", "tls-ring"]
+http3 = ["dep:quinn", "dep:h3", "dep:h3-quinn", "dep:rustls", "dep:rcgen", "tls-ring"]
 
-# Описываем наши фичи и связываем их с фичами rustls
 tls-ring = ["rustls/ring"]
 tls-aws-lc = ["rustls/aws-lc-rs"]
 
