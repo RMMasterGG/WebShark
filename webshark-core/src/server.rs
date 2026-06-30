@@ -3,25 +3,33 @@
 //! Отвечает за инициализацию TCP-слушателя, прием входящих соединений
 //! в бесконечном цикле и их маршрутизацию через [`Router`].
 
+use crate::config::server_config::ServerConfig;
 use crate::routing::router::{Handler, RouteType, Router, WSHandler};
 use crate::routing::socket_context::WebSocketContext;
-use crate::utils::config_system::{APP_CONFIG, Config};
+use crate::utils::config_system::APP_CONFIG;
 use crate::utils::console_util::SHARK_BANNER;
 use crate::utils::websocket::generate_accept_key;
 use crate::{Request, Response};
 use bytes::Bytes;
-use http::{Extensions, Method};
 use http::header::{
     ACCESS_CONTROL_ALLOW_HEADERS, ACCESS_CONTROL_ALLOW_METHODS, ACCESS_CONTROL_ALLOW_ORIGIN,
     ACCESS_CONTROL_REQUEST_HEADERS, ACCESS_CONTROL_REQUEST_METHOD, CONNECTION, ORIGIN, REFERER,
     UPGRADE,
 };
+use http::{Extensions, Method};
+use log::warn;
+#[cfg(feature = "http3")]
+use {
+    quinn::Connection,
+    quinn::crypto::rustls::QuicServerConfig,
+    rustls::pki_types::pem::PemObject,
+    rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer},
+};
 use std::sync::Arc;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
-use tokio::net::TcpListener;
+use tokio::net::{TcpListener, TcpStream};
 use tracing::{error, info};
 use tracing_subscriber::fmt;
-use crate::config::server_config::ServerConfig;
 
 pub struct Server {
     router: Router,
@@ -31,7 +39,7 @@ pub struct Server {
 impl Server {
     /// Создает новый экземпляр сервера с привязанным маршрутизатором.
     pub fn new(router: Router, configs: Extensions) -> Self {
-        Self { router, configs, }
+        Self { router, configs }
     }
 
     pub fn configs(&self) -> &Extensions {
@@ -87,11 +95,7 @@ impl Server {
     /// }
     /// ```
     pub async fn start_server(self) -> std::io::Result<()> {
-
         let shared_configs = Arc::new(self.configs);
-
-        let server_cfg = shared_configs.get::<ServerConfig>().unwrap();
-
         let router = Arc::new(self.router.clone());
 
         let format = fmt::format()
@@ -102,21 +106,127 @@ impl Server {
         // Logging subscribe
         tracing_subscriber::fmt().event_format(format).init();
 
-        let tcp_listener = TcpListener::bind(&server_cfg.server_and_port()).await?;
-
         println!("{}", SHARK_BANNER);
 
         println!("HTTP-сервер успешно запущен и слушает подключения...");
 
+        // Работа 2 серверов параллельно TCP + UDP
+        #[cfg(feature = "http3")]
+        tokio::try_join!(
+            Self::tcp_server(Arc::clone(&shared_configs), Arc::clone(&router)),
+            Self::udp_server(Arc::clone(&shared_configs), Arc::clone(&router))
+        )?;
+
+        // Если фичи http3 НЕТ — запускаем только TCP-сервер в обычном асинхронном режиме
+        #[cfg(not(feature = "http3"))]
+        {
+            Self::tcp_server(Arc::clone(&shared_configs), Arc::clone(&router)).await?;
+        }
+
+        Ok(())
+    }
+
+    async fn tcp_server(config: Arc<Extensions>, router: Arc<Router>) -> std::io::Result<()> {
+        let server_cfg = config.get::<ServerConfig>().unwrap();
+
+        let tcp_listener = TcpListener::bind(&server_cfg.server_and_port()).await?;
+
         loop {
-            let (stream, _) = tcp_listener.accept().await?;
+            match tcp_listener.accept().await {
+                Ok((stream, _)) => {
+                    let r = router.clone();
+                    let c = config.clone();
+
+                    tokio::spawn(async move {
+                        handle_tcp(stream, r, c).await;
+                    });
+                }
+                Err(e) => error!("Ошибка accept на TCP: {:?}", e),
+            }
+        }
+    }
+
+    #[cfg(feature = "http3")]
+    pub fn configure_quic_tls(
+        cert_path: Option<&String>,
+        key_path: Option<&String>,
+        config: &ServerConfig,
+    ) -> quinn::ServerConfig {
+        let (cert, key) = match (cert_path, key_path) {
+            (Some(cert_path), Some(key_path)) => {
+                let certs = CertificateDer::pem_file_iter(cert_path)
+                    .expect("Не удалось открыть или прочитать файл сертификата")
+                    .collect::<Result<Vec<_>, _>>()
+                    .expect("Ошибка парсинга PEM-структуры сертификата");
+
+                let key = PrivateKeyDer::from_pem_file(key_path)
+                    .expect("Ошибка чтения или парсинга файла закрытого ключа");
+                (certs, key)
+            }
+            _ => {
+                warn!(
+                    "⚠️ WebShark: Сертификаты TLS не указаны. Генерируем временный self-signed сертификат для localhost..."
+                );
+
+                let cert = rcgen::generate_simple_self_signed(vec![
+                    "localhost".into(),
+                    config.address.to_string(),
+                ])
+                .unwrap();
+
+                let cert_der = CertificateDer::from(cert.cert.der().to_vec());
+                let key_der = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(
+                    cert.signing_key.serialize_der(),
+                ));
+
+                (vec![cert_der], key_der)
+            }
+        };
+
+        let mut rustls_config = rustls::ServerConfig::builder()
+            .with_no_client_auth()
+            .with_single_cert(cert, key)
+            .unwrap();
+
+        rustls_config.alpn_protocols = vec![b"h3".to_vec()];
+
+        let quin_config =
+            QuicServerConfig::try_from(rustls_config).expect("Ошибка крипто-провайдера");
+
+        quinn::ServerConfig::with_crypto(Arc::new(quin_config))
+    }
+
+    #[cfg(feature = "http3")]
+    async fn udp_server(config: Arc<Extensions>, router: Arc<Router>) -> std::io::Result<()> {
+        let server_cfg = config.get::<ServerConfig>().unwrap();
+
+        #[cfg(all(feature = "tls-ring", not(feature = "tls-aws-lc")))]
+        let _ = rustls::crypto::ring::default_provider().install_default();
+
+        #[cfg(feature = "tls-aws-lc")]
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+
+        let server_config = Self::configure_quic_tls(None, None, server_cfg);
+
+        let endpoint = quinn::Endpoint::server(server_config, server_cfg.server_and_port())?;
+
+        while let Some(connecting) = endpoint.accept().await {
             let r = router.clone();
-            let c = shared_configs.clone();
+            let c = config.clone();
 
             tokio::spawn(async move {
-                handle_client(stream, r, c).await;
+                match connecting.await {
+                    Ok(connection) => {
+                        if let Err(e) = handle_quinn(connection, r, c).await {
+                            error!("Ошибка QUIC-соединения: {:?}", e);
+                        }
+                    }
+                    Err(e) => error!("Ошибка TLS-рукопожатия: {:?}", e),
+                }
             });
         }
+
+        Ok(())
     }
 }
 
@@ -223,14 +333,21 @@ fn validate_cors_and_origin(request: &Request<Bytes>) -> bool {
     true
 }
 
+
+#[cfg(feature = "http3")]
+async fn handle_quinn(
+    mut connection: Connection,
+    routers: Arc<Router>,
+    config: Arc<Extensions>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    Ok(())
+}
+
 /// Обрабатывает подключение конкретного TCP-клиента.
 ///
 /// Метод парсит входящие байты в [`Request`], ищет подходящий эндпоинт
 /// в [`Router`], вызывает его и отправляет полученный [`Response`] обратно в сеть.
-async fn handle_client<T>(mut stream: T, routers: Arc<Router>,config: Arc<Extensions>)
-where
-    T: AsyncRead + AsyncWrite + Unpin + Send + 'static + Sync,
-{
+async fn handle_tcp(mut stream: TcpStream, routers: Arc<Router>, config: Arc<Extensions>) {
     let request = match Request::parse(&mut stream).await {
         Ok(req) => req,
         Err(e) => return error!("Error parsing request: {}", e),
@@ -249,6 +366,8 @@ where
         let config = APP_CONFIG.get().unwrap();
 
         let origin_str = client_origin.as_deref().unwrap_or("*");
+
+        // Переписать на другую систему конфигов
 
         let allowed_methods_str = config
             .cors()
@@ -307,27 +426,24 @@ where
 
         let request_clone = request.clone();
 
-        let response_result = chain.execute::<_, ()>(request, move |req| {
-            let handler_arc_clone = handler_arc.clone();
+        let response_result = chain
+            .execute::<_, ()>(request, move |req| {
+                let handler_arc_clone = handler_arc.clone();
 
-            let future: crate::utils::other::BoxFuture<'static, Result<Response<Bytes>, &'static str>> =
-                Box::pin(async move {
+                let future: crate::utils::other::BoxFuture<
+                    'static,
+                    Result<Response<Bytes>, &'static str>,
+                > = Box::pin(async move {
                     match &handler_arc_clone {
-                        Handler::Http(_) => {
-                            Ok(handler_arc_clone.invoke_http(req).await)
-                        }
-                        Handler::WebSocket(_) => {
-                            Ok(Response::websocket_upgraded())
-                        }
-                        Handler::WebTransport(_) => {
-                            Ok(Response::default())
-                        }
+                        Handler::Http(_) => Ok(handler_arc_clone.invoke_http(req).await),
+                        Handler::WebSocket(_) => Ok(Response::websocket_upgraded()),
+                        Handler::WebTransport(_) => Ok(Response::default()),
                     }
                 });
 
-            future
-        }).await;
-
+                future
+            })
+            .await;
 
         let mut response = response_result.unwrap_or_else(|err_msg| {
             println!("[ERROR] Ошибка выполнения цепочки фильтров: {}", err_msg);
@@ -347,10 +463,7 @@ where
 
                     println!("[SHARK] Отправляем хэндшейк с ключом: {}", accept_key);
 
-                    stream
-                        .write_all(handshake_raw.as_bytes())
-                        .await
-                        .unwrap();
+                    stream.write_all(handshake_raw.as_bytes()).await.unwrap();
                     stream.flush().await.unwrap();
 
                     websocket_handler(stream, ws_handler, request_clone);

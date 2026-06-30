@@ -1,24 +1,25 @@
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use serde::Serialize;
 use crate::config::config_traits::Config;
 use crate::config::raw_toml::RawToml;
 
 #[derive(Clone, serde::Deserialize, Serialize)]
 pub struct ServerConfig {
-    pub address: String,
+    pub address: IpAddr,
     pub port: u16,
 }
 
 impl Default for ServerConfig {
     fn default() -> Self {
         Self {
-            address: "127.0.0.1".to_string(),
+            address: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
             port: 8080,
         }
     }
 }
 
 impl ServerConfig {
-    pub fn address(mut self, addr: String) -> Self {
+    pub fn address(mut self, addr: IpAddr) -> Self {
         self.address = addr;
         self
     }
@@ -28,8 +29,8 @@ impl ServerConfig {
         self
     }
 
-    pub fn server_and_port(&self) -> String {
-        format!("{}:{}", self.address, self.port)
+    pub fn server_and_port(&self) -> SocketAddr {
+        SocketAddr::new(self.address, self.port)
     }
 }
 

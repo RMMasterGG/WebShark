@@ -4,4 +4,4 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-webshark = { path = "../webshark-core" }
+webshark = { path = "../webshark-core", features = ["http3"] }
